@@ -15,9 +15,20 @@ import numpy as np
 from utils import CTCLabelConverter, CTCLabelConverterForBaiduWarpctc, AttnLabelConverter, Averager
 from dataset import hierarchical_dataset, AlignCollate, Batch_Balanced_Dataset
 from model import Model
-from test import validation
+from ocrtest import validation
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def count_parameters(model):
+    print("Modules, Parameters")
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        #table.add_row([name, param])
+        total_params+=param
+        print(name, param)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
 
 def train(opt):
     """ dataset preparation """
@@ -81,11 +92,16 @@ def train(opt):
     if opt.saved_model != '':
         print(f'loading pretrained model from {opt.saved_model}')
         if opt.FT:
-            model.load_state_dict(torch.load(opt.saved_model), strict=False)
+            pretrained_dict = torch.load(opt.saved_model, map_location=device)
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if (k in model.state_dict().keys()) and (model.state_dict()[k].shape == pretrained_dict[k].shape)}
+            for name in model.state_dict().keys() :
+                if name in pretrained_dict.keys() :
+                    model.state_dict()[name].copy_(pretrained_dict[name])
         else:
-            model.load_state_dict(torch.load(opt.saved_model))
+            model.load_state_dict(torch.load(opt.saved_model, map_location=device))
     print("Model:")
     print(model)
+    count_parameters(model)
 
     """ setup loss """
     if 'CTC' in opt.Prediction:
@@ -246,18 +262,18 @@ if __name__ == '__main__':
     parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping value. default=5')
     parser.add_argument('--baiduCTC', action='store_true', help='for data_filtering_off mode')
     """ Data processing """
-    parser.add_argument('--select_data', type=str, default='MJ-ST',
+    parser.add_argument('--select_data', type=str, default='/',
                         help='select training data (default is MJ-ST, which means MJ and ST used as training data)')
-    parser.add_argument('--batch_ratio', type=str, default='0.5-0.5',
+    parser.add_argument('--batch_ratio', type=str, default='1.0',
                         help='assign ratio for each selected data in the batch')
     parser.add_argument('--total_data_usage_ratio', type=str, default='1.0',
                         help='total data usage ratio, this ratio is multiplied to total number of data.')
-    parser.add_argument('--batch_max_length', type=int, default=25, help='maximum-label-length')
-    parser.add_argument('--imgH', type=int, default=32, help='the height of the input image')
-    parser.add_argument('--imgW', type=int, default=100, help='the width of the input image')
+    parser.add_argument('--batch_max_length', type=int, default=120, help='maximum-label-length')
+    parser.add_argument('--imgH', type=int, default=64, help='the height of the input image')
+    parser.add_argument('--imgW', type=int, default=256, help='the width of the input image')
     parser.add_argument('--rgb', action='store_true', help='use rgb input')
     parser.add_argument('--character', type=str,
-                        default='0123456789abcdefghijklmnopqrstuvwxyz', help='character label')
+                        default='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ €¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħĨĩĪīĬĭĮįİıĲĳĴĵĶķĸĹĺĻļĽľĿŀŁłŃńŅņŇňŉŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŧŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏƐƑƒƓƔƕƖƗƘƙƚƛƜƝƞƟƠơƢƣƤƥƦƧƨƩƪƫƬƭƮƯưƱƲƳƴƵƶƷƸƹƺƻƼƽƾƿǀǁǂǃǄǅǆǇǈǉǊǋǌǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǝǞǟǠǡǢǣǤǥǦǧǨǩǪǫǬǭǮǯǰǱǲǳǴǵǶǷǸǹǺǻǼǽǾǿȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȜȝȞȟȠȡȢȣȤȥȦȧȨȩȪȫȬȭȮȯȰȱȲȳȴȵȶȷȸȹȺȻȼȽȾȿɀɁɂɃɄɅɆɇɈɉɊɋɌɍɎ☀☁☂☃☄★☆☇☈☉☐☑☒☓☔☕☖☗☘☙☠☡☢☣☤☥☦☧☨☩☰☱☲☳☴☵☶☷☸☹♀♁♂♃♄♅♆♇♈♉♐♑♒♓♔♕♖♗♘♙♠♡♢♣♤♥♦♧♨♩♰♱♲♳♴♵♶♷♸♹⚀⚁⚂⚃⚄⚅⚆⚇⚈⚉⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙✀✁✂✃✄✅✆✇✈✉✐✑✒✓✔✕✖✗✘✙✠✡✢✣✤✥✦✧✨✩✰✱✲✳✴✵✶✷✸✹❀❁❂❃❄❅❆❇❈❉', help='character label')
     parser.add_argument('--sensitive', action='store_true', help='for sensitive character mode')
     parser.add_argument('--PAD', action='store_true', help='whether to keep ratio then pad for image resize')
     parser.add_argument('--data_filtering_off', action='store_true', help='for data_filtering_off mode')
@@ -270,10 +286,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_fiducial', type=int, default=20, help='number of fiducial points of TPS-STN')
     parser.add_argument('--input_channel', type=int, default=1,
                         help='the number of input channel of Feature extractor')
-    parser.add_argument('--output_channel', type=int, default=512,
+    parser.add_argument('--output_channel', type=int, default=256,
                         help='the number of output channel of Feature extractor')
-    parser.add_argument('--hidden_size', type=int, default=256, help='the size of the LSTM hidden state')
-
+    parser.add_argument('--hidden_size', type=int, default=512, help='the size of the LSTM hidden state')
+    
     opt = parser.parse_args()
 
     if not opt.exp_name:
